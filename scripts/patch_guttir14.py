@@ -80,4 +80,30 @@ p = "upstream/Dumper/generic.cpp"
 replace_once(p, '''    if (len) {
       char buf[1024];''', '''    if (len && len < 1024) {
       char buf[1024]{};''')
-print("Fortnite 14.40 compatibility and safety patches applied")
+
+# Report exactly which engine initialization prerequisite failed.
+p = "upstream/Dumper/engine.cpp"
+replace_once(p, '''  if (found != 7) return STATUS::ENGINE_FAILED;
+
+  NamePoolData =''', '''  printf("Engine scan: FNamePool=%s, GObjects=%s, Fortnite decrypt=%s\\n",
+         (found & 1) ? "matched" : "NOT FOUND",
+         (found & 2) ? "matched" : "NOT FOUND",
+         (found & 4) ? "matched" : "NOT FOUND");
+  if (found != 7) return STATUS::ENGINE_FAILED;
+  printf("Candidate addresses: FNamePool=%p GObjects=%p\\n", names, objects);
+
+  NamePoolData =''')
+replace_once(p, '''    if (*(uint32*)entry.String().data() != 'enoN') return STATUS::ENGINE_FAILED;''', '''    const auto firstName = entry.String();
+    printf("First decoded name: %s\\n", firstName.c_str());
+    if (firstName != "None") {
+      puts("Name validation failed: first name is not None");
+      return STATUS::ENGINE_FAILED;
+    }''')
+replace_once(p, '''  catch (...) {
+    return STATUS::ENGINE_FAILED;
+  }''', '''  catch (...) {
+    puts("Name validation threw an exception");
+    return STATUS::ENGINE_FAILED;
+  }''')
+
+print("Fortnite 14.40 compatibility, safety, and diagnostic patches applied")
