@@ -1,0 +1,55 @@
+name: Build Fortnite 14.40 UE Dumper
+
+on:
+  push:
+    branches:
+      - build/fortnite-14-40-cl14550713
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout the modified source
+        uses: actions/checkout@v4
+
+      - name: Setup Visual Studio MSBuild on GitHub runner
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Compile only the usermode Dumper in Release x64
+        shell: pwsh
+        run: |
+          $solutionDir = "$env:GITHUB_WORKSPACE\"
+          & msbuild.exe "Dumper\Dumper.vcxproj" /nologo /m:2 /t:Build /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=$solutionDir"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Prepare portable download
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $exe = Get-ChildItem -Path . -Recurse -Filter Dumper.exe -File | Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1
+          if (-not $exe) { throw "Dumper.exe not found after build" }
+          Copy-Item $exe.FullName "dist/Dumper_Fortnite_1440.exe"
+          @"
+          UE Dumper (Fortnite 14.40 CL-14550713)
+          Source branch: build/fortnite-14-40-cl14550713
+          Process: FortniteClient-Win64-Shipping.exe
+          Build: Windows x64, usermode Dumper only
+          No kernel driver was compiled or included.
+          The executable's process name has been adapted but Fortnite 14.40 compatibility has NOT been verified.
+          Runtime memory access and SDK generation are NOT guaranteed.
+          Original project: https://github.com/McDaived/UE-Dumper
+          "@ | Set-Content -Encoding UTF8 "dist/LEIA_PRIMEIRO.txt"
+
+      - name: Upload compiled Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: UE_Dumper_Fortnite_14.40_CL-14550713_Windows_x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
