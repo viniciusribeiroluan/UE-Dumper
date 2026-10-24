@@ -145,7 +145,7 @@ replace_once(p, '''  if (found != 7) return STATUS::ENGINE_FAILED;
           if (!Read((void*)block0, first, sizeof(first))) continue;
           ++plausible;
           if (printed++ < 15) {
-            printf("FNamePool candidate: RVA=0x%llX adjust=%u block=%u cursor=%u block0=0x%llX first=%02X %02X %02X %02X %02X %02X\n",
+            printf("FNamePool candidate: RVA=0x%llX adjust=%u block=%u cursor=%u block0=0x%llX first=%02X %02X %02X %02X %02X %02X\\n",
               (unsigned long long)(target - imageBegin), adjust,
               block, cursor, (unsigned long long)block0,
               first[0], first[1], first[2], first[3], first[4], first[5]);
@@ -154,7 +154,7 @@ replace_once(p, '''  if (found != 7) return STATUS::ENGINE_FAILED;
       }
       return false;
     });
-    printf("Alternate FNamePool scan: %u LEA references, %u plausible headers (showing up to 15)\n",
+    printf("Alternate FNamePool scan: %u LEA references, %u plausible headers (showing up to 15)\\n",
            references, plausible);
     puts("Fortnite decrypt signature missing; no SDK generation attempted.");
     return STATUS::ENGINE_FAILED;
