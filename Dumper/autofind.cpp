@@ -570,6 +570,12 @@ AutoFindResult AutoFindGObjects(byte* start, byte* end)
     for (auto& sig : kGObjectsSigs) {
         if (TryOneSig(start, end, sig, -4, false, result)) return result;
         if (TryOneSig(start, end, sig, +4, false, result)) return result;
+        // Diagnostic only: report a byte-pattern match rejected by pointer/layout
+        // validation. This does not bypass the validator or modify memory.
+        if (FindSignature(start, end,
+                          const_cast<byte*>(sig.bytes.data()), sig.bytes.size())) {
+            LOGW("  GObjects raw signature matched but was rejected: {}\n", sig.label);
+        }
     }
     return result; 
 }
