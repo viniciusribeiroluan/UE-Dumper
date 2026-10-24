@@ -318,7 +318,28 @@ public:
                 return MODULE_NOT_FOUND;
 
             Image.resize(size);
-            if (!Read(base, Image.data(), size)) { return CANNOT_READ; }
+            // A single ReadProcessMemory for the entire PE image can fail if
+            // even one page is inaccessible. Read individual pages instead.
+            // Unreadable pages remain zero-filled; this does not bypass access
+            // controls or protected memory.
+            constexpr size_t pageSize = 0x1000;
+            size_t readableBytes = 0;
+            size_t unreadablePages = 0;
+            for (size_t offset = 0; offset < size; offset += pageSize) {
+                const size_t count = (std::min)(pageSize, static_cast<size_t>(size) - offset);
+                auto* remote = reinterpret_cast<byte*>(base) + offset;
+                if (Read(remote, Image.data() + offset, count)) {
+                    readableBytes += count;
+                } else {
+                    ++unreadablePages;
+                }
+            }
+            LOG("  Image read: {} / {} bytes, {} unreadable pages\n",
+                readableBytes, size, unreadablePages);
+            if (readableBytes < 0x1000 || unreadablePages == (size + pageSize - 1) / pageSize) {
+                LOGE("  Cannot read the module's memory pages. Check process access.\n");
+                return CANNOT_READ;
+            }
             sections = GetExSections(Image.data());
             if (!sections.size()) { return INVALID_IMAGE; }
             Base = reinterpret_cast<uint64_t>(base);
