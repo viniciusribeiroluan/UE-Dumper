@@ -72,7 +72,7 @@ private:
         return true;
     }
 
-    static bool FindGlobalNames(byte* start, byte* end,
+    bool FindGlobalNames(byte* start, byte* end,
                                  const SigSpec& sig,
                                  std::pair<byte*, size_t>& matchInfo)
     {
