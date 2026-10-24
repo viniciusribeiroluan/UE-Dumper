@@ -143,22 +143,67 @@ replace_once(p, '''  if (found != 7) return STATUS::ENGINE_FAILED;
               block0 < 0x10000) continue;
           uint8 first[8]{};
           if (!Read((void*)block0, first, sizeof(first))) continue;
+          // UE4 FNamePool begins with the "None" entry (four characters).
+          // Reject arbitrary UTF-16 strings and other mapped pointers.
+          uint16 firstHeader = 0;
+          memcpy(&firstHeader, first, 2);
+          const bool header64 = (firstHeader >> 6) == 4;
+          const bool header1 = (firstHeader >> 1) == 4;
+          if (!header64 && !header1) continue;
+          if (block > 2048 || cursor < 32 || cursor > 65536 ||
+              (block0 & 1) != 0) continue;
           ++plausible;
-          if (printed++ < 15) {
-            printf("FNamePool candidate: RVA=0x%llX adjust=%u block=%u cursor=%u block0=0x%llX first=%02X %02X %02X %02X %02X %02X\\n",
+          if (printed++ < 20) {
+            printf("FNamePool strong candidate: RVA=0x%llX adjust=%u block=%u cursor=%u block0=0x%llX header=0x%04X header-format=%s raw=%02X %02X %02X %02X %02X %02X\\n",
               (unsigned long long)(target - imageBegin), adjust,
               block, cursor, (unsigned long long)block0,
+              (unsigned)firstHeader, header64 ? "len>>6" : "len>>1",
               first[0], first[1], first[2], first[3], first[4], first[5]);
           }
         }
       }
       return false;
     });
-    printf("Alternate FNamePool scan: %u LEA references, %u plausible headers (showing up to 15)\\n",
+    printf("Alternate FNamePool scan: %u LEA references, %u four-char-first-entry candidates (showing up to 20)\\n",
            references, plausible);
+    // Independently inspect writable sections, as some pool globals have no
+    // matching RIP-relative LEA in the original Fortnite signature family.
+    uint32 dataHeaders = 0, dataPrinted = 0;
+    auto section = IMAGE_FIRST_SECTION(nt);
+    for (uint32 si = 0; si < nt->FileHeader.NumberOfSections; ++si, ++section) {
+      if (!(section->Characteristics & IMAGE_SCN_MEM_WRITE)) continue;
+      size_t start = section->VirtualAddress;
+      size_t end = start + section->Misc.VirtualSize;
+      if (start >= imageSize) continue;
+      if (end > imageSize) end = imageSize;
+      for (size_t off = (start + 7) & ~size_t(7); off + 32 <= end; off += 8) {
+        uint8* candidate = (uint8*)image + off;
+        uint32 block = 0, cursor = 0;
+        uint64 block0 = 0;
+        memcpy(&block, candidate + 8, 4);
+        memcpy(&cursor, candidate + 12, 4);
+        memcpy(&block0, candidate + 16, 8);
+        if (block > 2048 || cursor < 32 || cursor > 65536 ||
+            block0 < 0x10000 || block0 >= 0x0000800000000000ull ||
+            (block0 & 1) != 0) continue;
+        uint8 first[8]{};
+        if (!Read((void*)block0, first, sizeof(first))) continue;
+        uint16 firstHeader = 0;
+        memcpy(&firstHeader, first, 2);
+        if ((firstHeader >> 6) != 4 && (firstHeader >> 1) != 4) continue;
+        ++dataHeaders;
+        if (dataPrinted++ < 20) {
+          printf("FNamePool data candidate: RVA=0x%llX block=%u cursor=%u block0=0x%llX firstHeader=0x%04X raw=%02X %02X %02X %02X %02X %02X\\n",
+                 (unsigned long long)off, block, cursor,
+                 (unsigned long long)block0, (unsigned)firstHeader,
+                 first[0], first[1], first[2], first[3], first[4], first[5]);
+        }
+      }
+    }
+    printf("Writable-section FNamePool scan: %u candidates (showing up to 20)\\n", dataHeaders);
     puts("Fortnite decrypt signature missing; no SDK generation attempted.");
     return STATUS::ENGINE_FAILED;
   }
   printf("Candidate addresses:''')
 
-print("Fortnite 14.40 compatibility, safety, and alternate FNamePool diagnostic applied")
+print("Fortnite 14.40 FNamePool strict header validation and writable-section scan applied")
