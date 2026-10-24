@@ -268,12 +268,12 @@ public:
             return pid;
         };
 
-        const wchar_t* preferred = L"SoTGame.exe";
+        const wchar_t* preferred = L"FortniteClient-Win64-Shipping.exe";
         uint32_t pid = findByName(preferred);
         if (!pid) pid = findByWindow();
 
         if (!pid) {
-            LOG("[+] Waiting SoTGame.exe\n");
+            LOG("[+] Waiting FortniteClient-Win64-Shipping.exe\n");
             static const char spin[] = "|/-\\";
             int tick = 0;
             while (!pid) {
@@ -288,7 +288,7 @@ public:
             fmt::print("\r                            \r");  
         }
 
-        LOG("[+] SoTGame.exe Found! ( PID {} )\n", pid);
+        LOG("[+] FortniteClient-Win64-Shipping.exe Found! ( PID {} )\n", pid);
 
         if (!ReaderInit(pid)) { return READER_ERROR; };
         LOG("    Reader mode : {}\n", ReaderModeName());
