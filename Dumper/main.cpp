@@ -29,7 +29,8 @@ enum {
     NAMES_NOT_FOUND,
     OBJECTS_NOT_FOUND,
     FILE_NOT_OPEN,
-    ZERO_PACKAGES
+    ZERO_PACKAGES,
+    NAMES_EMPTY
 };
 
 class Dumper
@@ -87,10 +88,50 @@ private:
             sig.PtrOffset, sig.PtrExtra);
         if (!address) return false;
 
-        Read(*reinterpret_cast<decltype(GlobalNames)**>(address), &GlobalNames, sizeof(GlobalNames));
+        // The original implementation reported success even when Read failed.
+        // Confirm that the RIP-relative address belongs to the copied image.
+        if (address < Image.data() ||
+            static_cast<size_t>(address - Image.data()) > Image.size() - sizeof(void*)) {
+            LOGW("  GNames primary match points outside copied image\n");
+            return false;
+        }
+        void* remoteNames = nullptr;
+        std::memcpy(&remoteNames, address, sizeof(remoteNames));
+        if (!remoteNames) {
+            LOGW("  GNames primary match has a null runtime pointer\n");
+            return false;
+        }
+
+        TNameEntryArray candidate{};
+        if (!Read(remoteNames, &candidate, sizeof(candidate))) {
+            LOGW("  GNames primary match: cannot read expected legacy name array\n");
+            return false;
+        }
+        LOG("  GNames legacy candidate: NumElements={}, NumChunks={}\n",
+            candidate.NumElements, candidate.NumChunks);
+        if (candidate.NumElements < 500 || candidate.NumElements > 5000000 ||
+            candidate.NumChunks <= 0 || candidate.NumChunks > 128 ||
+            !candidate.Chunks[0]) {
+            LOGW("  GNames primary match rejected: invalid legacy array layout (possible FNamePool)\n");
+            return false;
+        }
+        // Do not accept a candidate until the first name can be resolved.
+        const auto firstNamePtr = Read<byte*>(candidate.Chunks[0]);
+        if (!firstNamePtr) {
+            LOGW("  GNames primary match rejected: cannot read first name entry\n");
+            return false;
+        }
+        const auto saved = GlobalNames;
+        GlobalNames = candidate;
+        const auto firstName = UE_FNameEntry(firstNamePtr).String();
+        if (firstName != "None" && firstName != "none") {
+            GlobalNames = saved;
+            LOGW("  GNames primary match rejected: first name is not None\n");
+            return false;
+        }
 
         matchInfo = { start, (size_t)(sigMatch - start) };
-        LOG("  GNames    found  @ section+0x{:08X}\n",
+        LOG("  GNames legacy array validated @ section+0x{:08X}\n",
             (uintptr_t)(address - start));
         return true;
     }
@@ -454,6 +495,7 @@ public:
                 bar.Finish();
             }
             LOG("  Total names : {}\n\n", size);
+            if (size == 0) return NAMES_EMPTY;
         }
 
         std::unordered_map<byte*, std::vector<UE_UObject>> packages;
@@ -696,6 +738,7 @@ static int RealMain(int argc, char* argv[])
     {
     case FILE_NOT_OPEN:  LOGE("Error: can't open output file\n"); LogClose(); return FAILED;
     case ZERO_PACKAGES:  LOGE("Error: zero packages found\n");    LogClose(); return FAILED;
+    case NAMES_EMPTY: LOGE("Error: zero names decoded; SDK generation stopped (check GNames/FNamePool layout)\n"); LogClose(); return FAILED;
     case SUCCESS:        break;
     default:             LogClose(); return FAILED;
     }
