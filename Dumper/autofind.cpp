@@ -539,30 +539,68 @@ static bool TryOneSig(byte* start, byte* end,
                        bool isGNames,
                        AutoFindResult& out)
 {
-    byte* address = (byte*)FindPointer(start, end,
-        const_cast<byte*>(ks.bytes.data()), ks.bytes.size(),
-        ptrOffset, ks.ptrExtra);
-    if (!address) return false;
+    // Search every occurrence instead of checking only the first match.
+    // Pattern hits are not proof of a valid global; retain structural checks.
+    byte* cursor = start;
+    size_t matches = 0;
+    size_t checked = 0;
+    constexpr size_t maxMatches = 4096;
+    while (cursor < end && static_cast<size_t>(end - cursor) > ks.bytes.size()
+           && matches < maxMatches) {
+        byte* match = FindSignature(cursor, end,
+            const_cast<byte*>(ks.bytes.data()), ks.bytes.size());
+        if (!match) break;
+        ++matches;
+        cursor = match + 1;
+        if (ks.ptrExtra < 0 || match + ks.ptrExtra + sizeof(int32_t) > end)
+            continue;
 
-    bool valid = isGNames ? ValidateGNames(address) : ValidateGObjects(address);
-    if (!valid) return false;
+        int32_t rel = 0;
+        memcpy(&rel, match + ks.ptrExtra, sizeof(rel));
+        const intptr_t targetValue = reinterpret_cast<intptr_t>(match + ks.ptrExtra)
+                                    + static_cast<intptr_t>(rel) + ptrOffset;
+        auto* address = reinterpret_cast<byte*>(targetValue);
 
-    if (isGNames) {
-        auto* gamePtr = *reinterpret_cast<decltype(GlobalNames)**>(address);
-        Read(gamePtr, &GlobalNames, sizeof(GlobalNames));
-    } else {
-        ObjObjects = *reinterpret_cast<TUObjectArray*>(address);
+        // Validate that the computed pointer is mapped in our own image.
+        // This is a local safety check, not a memory protection bypass.
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (!VirtualQuery(address, &mbi, sizeof(mbi))
+            || mbi.State != MEM_COMMIT
+            || (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+            continue;
+        const uintptr_t addr = reinterpret_cast<uintptr_t>(address);
+        const uintptr_t regionStart = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+        const uintptr_t regionEnd = regionStart + mbi.RegionSize;
+        const size_t needed = isGNames ? sizeof(void*) : sizeof(TUObjectArray);
+        if (addr < regionStart || addr > regionEnd
+            || static_cast<size_t>(regionEnd - addr) < needed)
+            continue;
+
+        ++checked;
+        const bool valid = isGNames ? ValidateGNames(address) : ValidateGObjects(address);
+        if (!valid) continue;
+
+        if (isGNames) {
+            auto* gamePtr = *reinterpret_cast<decltype(GlobalNames)**>(address);
+            Read(gamePtr, &GlobalNames, sizeof(GlobalNames));
+        } else {
+            ObjObjects = *reinterpret_cast<TUObjectArray*>(address);
+        }
+
+        LOG("  Signature validated after {} match(es): {}\n", matches, ks.label);
+        out.found = true;
+        out.sig = { std::vector<uint8_t>(ks.bytes.begin(), ks.bytes.end()),
+                    ptrOffset, ks.ptrExtra };
+        out.label = std::string(ks.label) +
+                    (ptrOffset == -4 ? "  [off=-4]" : "  [off=+4]");
+        return true;
     }
-
-    out.found    = true;
-    out.sig      = { std::vector<uint8_t>(ks.bytes.begin(), ks.bytes.end()),
-                     ptrOffset, ks.ptrExtra };
-    out.label    = std::string(ks.label) +
-                   (ptrOffset == -4 ? "  [off=-4]" : "  [off=+4]");
-    return true;
+    if (matches > 0 && !isGNames) {
+        LOGW("  Candidate scan: {} matches, {} readable candidates, no valid GObjects: {} (off={})\n",
+             matches, checked, ks.label, ptrOffset);
+    }
+    return false;
 }
-
-
 
 AutoFindResult AutoFindGObjects(byte* start, byte* end)
 {
