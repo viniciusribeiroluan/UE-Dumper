@@ -1,0 +1,75 @@
+name: Test guttir14 UnrealDumper 4.25 on Fortnite 14.40
+
+on:
+  push:
+    branches:
+      - build/fortnite-14-40-cl14550713
+    paths:
+      - .github/workflows/build-guttir14-fortnite.yml
+      - scripts/patch_guttir14.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout patch scripts
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned upstream guttir14 source
+        shell: pwsh
+        run: |
+          git clone https://github.com/guttir14/UnrealDumper-4.25.git upstream
+          git -C upstream checkout --detach aaff48322b547f9e04933ec154e974889d4cbf0b
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Patch process selection and tolerate unreadable image pages
+        shell: pwsh
+        run: |
+          python scripts/patch_guttir14.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Compile Release x64 (user-mode only)
+        shell: pwsh
+        run: |
+          $solutionDir = "$env:GITHUB_WORKSPACE\upstream\"
+          & msbuild.exe "upstream\Dumper\Dumper.vcxproj" /nologo /m:2 /t:Build /p:Configuration=Release /p:Platform=x64 /p:VcpkgEnabled=false "/p:SolutionDir=$solutionDir"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package executable and instructions
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $exe = Get-ChildItem -Path upstream -Recurse -Filter Dumper.exe -File | Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1
+          if (-not $exe) { throw "Dumper.exe not found after build" }
+          Copy-Item $exe.FullName "dist/UnrealDumper_guttir14_Fortnite_1440.exe"
+          @"
+          TESTE FORTNITE 14.40 - UnrealDumper-4.25 de guttir14
+          Original: https://github.com/guttir14/UnrealDumper-4.25
+          Upstream commit: aaff48322b547f9e04933ec154e974889d4cbf0b
+          Patch: https://github.com/viniciusribeiroluan/UE-Dumper/tree/build/fortnite-14-40-cl14550713/scripts
+
+          1. Inicie o Fortnite 14.40 no Project rEBOOT.
+          2. Extraia este ZIP em uma pasta separada.
+          3. Execute UnrealDumper_guttir14_Fortnite_1440.exe.
+          4. Se funcionar, arquivos aparecem em Games/FortniteClient-Win64-Shipping/.
+          5. Envie o log completo se falhar.
+
+          Esta versao nao usa driver de kernel. Executa leitura de memoria em usermode.
+          Compatibilidade especifica com CL-14550713 nao foi confirmada.
+          "@ | Set-Content -Encoding UTF8 "dist/LEIA_PRIMEIRO.txt"
+
+      - name: Upload Windows x64 test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: guttir14_UnrealDumper_4.25_Fortnite_14.40_x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
