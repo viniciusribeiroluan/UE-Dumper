@@ -106,4 +106,59 @@ replace_once(p, '''  catch (...) {
     return STATUS::ENGINE_FAILED;
   }''')
 
-print("Fortnite 14.40 compatibility, safety, and diagnostic patches applied")
+
+# Diagnostic-only scan: look for RIP-relative references to a plausible UE4
+# FNamePool header. No decryption code is executed and no SDK is generated.
+p = "upstream/Dumper/engine.cpp"
+replace_once(p, '''  if (found != 7) return STATUS::ENGINE_FAILED;
+  printf("Candidate addresses:''', '''  if (found != 7) {
+    puts("Scanning alternate RIP-relative FNamePool references (diagnostic only)...");
+    auto dos = (PIMAGE_DOS_HEADER)image;
+    auto nt = (PIMAGE_NT_HEADERS)((uint8*)image + dos->e_lfanew);
+    size_t imageSize = nt->OptionalHeader.SizeOfImage;
+    uintptr_t imageBegin = (uintptr_t)image;
+    uintptr_t imageEnd = imageBegin + imageSize;
+    uint32 references = 0, plausible = 0, printed = 0;
+    IterateExSections(image, [&](void* sectionStart, void* sectionEnd) -> bool {
+      for (auto at = (uint8*)sectionStart; at + 7 <= (uint8*)sectionEnd; ++at) {
+        // LEA reg,[RIP+disp32]: 48/4C 8D 05/0D/15/1D/25/2D/35/3D
+        if ((at[0] != 0x48 && at[0] != 0x4C) || at[1] != 0x8D ||
+            (at[2] & 0xC7) != 0x05) continue;
+        ++references;
+        int32 displacement = 0;
+        memcpy(&displacement, at + 3, sizeof(displacement));
+        uintptr_t target = (uintptr_t)(at + 7) + displacement;
+        if (target < imageBegin || target > imageEnd - 64) continue;
+        uintptr_t remote = (uintptr_t)Base + (target - imageBegin);
+        uint8 header[64]{};
+        if (!Read((void*)remote, header, sizeof(header))) continue;
+        // Also check references to nearby fields of the pool.
+        for (uint32 adjust : {0u, 8u, 16u}) {
+          uint32 block = 0, cursor = 0;
+          uint64 block0 = 0;
+          memcpy(&block, header + adjust + 8, 4);
+          memcpy(&cursor, header + adjust + 12, 4);
+          memcpy(&block0, header + adjust + 16, 8);
+          if (block >= 8192 || cursor == 0 || cursor > 131072 ||
+              block0 < 0x10000) continue;
+          uint8 first[8]{};
+          if (!Read((void*)block0, first, sizeof(first))) continue;
+          ++plausible;
+          if (printed++ < 15) {
+            printf("FNamePool candidate: RVA=0x%llX adjust=%u block=%u cursor=%u block0=0x%llX first=%02X %02X %02X %02X %02X %02X\n",
+              (unsigned long long)(target - imageBegin), adjust,
+              block, cursor, (unsigned long long)block0,
+              first[0], first[1], first[2], first[3], first[4], first[5]);
+          }
+        }
+      }
+      return false;
+    });
+    printf("Alternate FNamePool scan: %u LEA references, %u plausible headers (showing up to 15)\n",
+           references, plausible);
+    puts("Fortnite decrypt signature missing; no SDK generation attempted.");
+    return STATUS::ENGINE_FAILED;
+  }
+  printf("Candidate addresses:''')
+
+print("Fortnite 14.40 compatibility, safety, and alternate FNamePool diagnostic applied")
