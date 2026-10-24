@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/build-guttir14-fortnite.yml
       - scripts/patch_guttir14.py
+      - scripts/probe_fortnite1440.py
   workflow_dispatch:
 
 permissions:
@@ -43,6 +44,23 @@ jobs:
           & msbuild.exe "upstream\Dumper\Dumper.vcxproj" /nologo /m:2 /t:Build /p:Configuration=Release /p:Platform=x64 /p:VcpkgEnabled=false "/p:SolutionDir=$solutionDir"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Setup Python for layout probe
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Test probe and build standalone Windows EXE
+        shell: pwsh
+        run: |
+          python scripts/probe_fortnite1440.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install --disable-pip-version-check pyinstaller
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m PyInstaller --noconfirm --onefile --console --name Fortnite1440_LayoutProbe scripts/probe_fortnite1440.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ".\\dist\\Fortnite1440_LayoutProbe.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Package executable and instructions
         shell: pwsh
         run: |
@@ -60,7 +78,9 @@ jobs:
           2. Extraia este ZIP em uma pasta separada.
           3. Execute UnrealDumper_guttir14_Fortnite_1440.exe.
           4. Se funcionar, arquivos aparecem em Games/FortniteClient-Win64-Shipping/.
-          5. Envie o log completo se falhar.
+          5. Validador experimental de GWorld: execute Fortnite1440_LayoutProbe.exe > resultado_probe.txt 2>&1
+          6. Envie resultado_probe.txt. O validador usa offsets de membros da 14.30 como HIPOTESES.
+          7. A busca GWorld e heuristica; NAO confirma GObjects/FNamePool e NAO gera SDK.
 
           Esta versao nao usa driver de kernel. Executa leitura de memoria em usermode.
           Compatibilidade especifica com CL-14550713 nao foi confirmada.
