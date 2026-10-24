@@ -392,7 +392,7 @@ public:
             if (!detected.empty()) {
                 if (UEVersion == "Unknown" || UEVersion == "4.x" || UEVersion == "5.x")
                     UEVersion = detected;
-                LOG("  Detected UE version : {}\n", UEVersion);
+                LOG("  Configured UE version : {} (binary release marker: {})\n", UEVersion, detected);
             }
             LOG("  Game                : {}\n", processName.string());
             LOG("  UE5 mode            : {}\n\n", IsUE5 ? "yes" : "no");
