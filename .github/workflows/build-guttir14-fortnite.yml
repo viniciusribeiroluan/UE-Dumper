@@ -8,6 +8,7 @@ on:
       - .github/workflows/build-guttir14-fortnite.yml
       - scripts/patch_guttir14.py
       - scripts/probe_fortnite1440.py
+      - scripts/probe_fortnite1440_dual.py
   workflow_dispatch:
 
 permissions:
@@ -60,6 +61,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & ".\\dist\\Fortnite1440_LayoutProbe.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/probe_fortnite1440_dual.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m PyInstaller --noconfirm --onefile --console --name Fortnite1440_DualProfileProbe scripts/probe_fortnite1440_dual.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ".\\dist\\Fortnite1440_DualProfileProbe.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package executable and instructions
         shell: pwsh
@@ -80,7 +87,8 @@ jobs:
           4. Se funcionar, arquivos aparecem em Games/FortniteClient-Win64-Shipping/.
           5. Validador experimental de GWorld: execute Fortnite1440_LayoutProbe.exe > resultado_probe.txt 2>&1
           6. Envie resultado_probe.txt. O validador usa offsets de membros da 14.30 como HIPOTESES.
-          7. A busca GWorld e heuristica; NAO confirma GObjects/FNamePool e NAO gera SDK.
+          7. Para comparar os 2 perfis: Fortnite1440_DualProfileProbe.exe > resultado_perfis.txt 2>&1
+          8. Envie resultado_perfis.txt. NAO confirma GObjects/FNamePool e NAO gera SDK.
 
           Esta versao nao usa driver de kernel. Executa leitura de memoria em usermode.
           Compatibilidade especifica com CL-14550713 nao foi confirmada.
